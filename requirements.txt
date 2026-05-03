@@ -1,0 +1,6 @@
+langchain_ollama
+langchain-classic
+streamlit
+uvicorn
+requests
+mcp
