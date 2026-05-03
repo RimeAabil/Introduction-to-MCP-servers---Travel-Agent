@@ -1,80 +1,89 @@
-# Introduction to MCP Servers — Travel Agent
+# 🌍 Travel Agent — MCP Server Architecture
 
-## What this project is
+> A production-style travel planning assistant powered by a **LangChain ReAct agent**, **local LLMs via Ollama**, and **modular MCP tool servers** built with FastAPI.
 
-This repository is a full example of a tool-backed travel planning application built with Model Context Protocol (MCP) servers. It demonstrates how to combine:
+---
 
-- a user-facing interface powered by Streamlit,
-- a ReAct-style language agent powered by LangChain and Ollama,
-- multiple independent MCP tool servers implemented with FastAPI,
-- a clean package layout so each part of the system is easy to understand.
+## What This Project Does
 
-The main idea is to keep reasoning and tool execution separate. The agent decides what to do, and the MCP servers execute deterministic operations with clear inputs and outputs.
+You type a travel request like:
 
-## Professional project structure
+> *"Plan a 5-day mid-range trip to Barcelona in July. Show costs in EUR."*
 
-- `agent/` — travel agent package
-  - `mcp_client.py` — MCP tool client implementation
-  - `prompts/` — agent prompt templates
-  - `tools/` — wrappers that convert agent tool requests into MCP calls
-  - `runner.py` — agent construction and execution logic
-- `mcp_servers/` — FastAPI tool server implementations
-- `ui/` — Streamlit front-end source
-- `config.py` — centralized configuration for server URLs and model settings
-- `start_servers.sh` — convenient startup script for all MCP services
-- `MCP_SERVERS.md` — detailed course-style MCP server documentation
-- `requirements.txt` — Python dependencies for the full system
+The system:
+1. Passes your request to a **reasoning agent** (powered by a local LLM)
+2. The agent decides which tools it needs — weather, budget, currency, destinations
+3. Each tool is a separate **MCP server** that returns precise, structured data
+4. The agent assembles the results into a complete travel plan
+5. The plan is displayed in a clean **Streamlit UI** with a download option
 
-## How the system works
+This architecture separates *reasoning* (the LLM) from *execution* (the MCP servers), making the system modular, testable, and reliable.
 
-### 1. User interface
+---
 
-The user interacts with the system through a Streamlit app. The Streamlit UI is implemented in `ui/streamlit_app.py` and provides:
+## Architecture Overview
 
-- sample travel prompts,
-- a text input for custom requests,
-- tool health checks for each MCP service,
-- rendered travel plan output,
-- a download button to save the plan.
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Streamlit UI                        │
+│              ui/streamlit_app.py · port 8501            │
+└────────────────────────┬────────────────────────────────┘
+                         │ user request
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│              LangChain ReAct Agent                      │
+│         agent/runner.py · ChatOllama (llama3)           │
+│                                                         │
+│  thinks → picks tool → calls MCP → observes → repeats  │
+└──┬──────────┬──────────┬────────────┬──────────┬────────┘
+   │          │          │            │          │
+   ▼          ▼          ▼            ▼          ▼
+Budget    Weather    Currency    Destination  Calculator
+:3001      :3002      :3003        :3004       :3005
+```
 
-### 2. Agent reasoning
+---
 
-The travel agent is defined in `agent/runner.py`. It uses:
+## Project Structure
 
-- `ChatOllama` for local model inference,
-- LangChain ReAct for the thought/action/observation loop,
-- a set of named tools to call external MCP services.
+```
+travel-agent/
+│
+├── agent/                      # Agent logic
+│   ├── runner.py               # Builds and runs the ReAct agent
+│   ├── mcp_client.py           # HTTP client for calling MCP servers
+│   ├── prompts/                # Agent prompt templates
+│   └── tools/                  # Tool wrappers (one per MCP server)
+│       ├── budget.py
+│       ├── weather.py
+│       ├── currency.py
+│       ├── destination.py
+│       └── calculator.py
+│
+├── mcp_servers/                # Independent FastAPI tool services
+│   ├── budget_server.py        # Travel budget estimation
+│   ├── weather_server.py       # Destination weather lookup
+│   ├── currency_server.py      # USD currency conversion
+│   ├── destination_server.py   # Attraction & food recommendations
+│   └── calculator_server.py    # Safe arithmetic evaluation
+│
+├── ui/
+│   └── streamlit_app.py        # Streamlit front-end
+│
+├── config.py                   # Centralized URLs and model settings
+├── app_streamlit.py            # Root entrypoint for Streamlit
+├── agents.py                   # Root compatibility wrapper
+├── start_servers.sh            # Launches all MCP servers at once
+├── requirements.txt            # All Python dependencies
+├── README.md                   # This file
+└── MCP_SERVERS.md              # Deep-dive into MCP server architecture
+```
 
-The agent is configured to follow a structured prompt template with clear tool usage instructions.
+---
 
-### 3. MCP servers
+## Quick Start
 
-The real tool work happens in `mcp_servers/`. Each server provides one capability:
-
-- `budget_server.py` — travel budget estimation,
-- `weather_server.py` — destination weather lookup,
-- `currency_server.py` — USD currency conversion,
-- `destination_server.py` — attraction and food recommendations,
-- `calculator_server.py` — safe arithmetic evaluation.
-
-These servers are intentionally small and designed to be easy to read and extend.
-
-### 4. Tool wrappers
-
-The agent uses wrapper functions in `agent/tools/` to translate the model's tool input into MCP calls. Each wrapper:
-
-- parses a flexible string input,
-- validates or extracts the relevant values,
-- calls the appropriate MCP service via `agent.mcp_client.call_tool`,
-- returns a plain text result for the agent to consume.
-
-## Setup and run
-
-### Requirements
-
-This project requires Python and the packages listed in `requirements.txt`.
-
-### Install dependencies
+### 1. Clone and set up the environment
 
 ```bash
 cd /home/rime/projects/travel-agent
@@ -83,54 +92,108 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Start the MCP servers
+### 2. Start Ollama and pull the model
+
+```bash
+# In a separate terminal
+ollama serve
+
+# Pull the model (one-time)
+ollama pull llama3
+```
+
+### 3. Launch all MCP servers
 
 ```bash
 ./start_servers.sh
 ```
 
-The script starts each server on a dedicated local port:
+This starts 5 FastAPI services on dedicated ports:
 
-- `3001` — Budget Estimator
-- `3002` — Weather Checker
-- `3003` — Currency Converter
-- `3004` — Destination Search
-- `3005` — Calculator
+| Port | Service |
+|------|---------|
+| 3001 | Budget Estimator |
+| 3002 | Weather Checker |
+| 3003 | Currency Converter |
+| 3004 | Destination Search |
+| 3005 | Calculator |
 
-### Run the Streamlit app
+### 4. Start the Streamlit UI
 
 ```bash
 streamlit run app_streamlit.py
 ```
 
-Then open the browser address that Streamlit prints.
+Open the URL shown in the terminal (typically **http://localhost:8501**).
 
-## Example prompts
+---
 
-- `Plan a 5-day mid-range trip to Barcelona in July. Show costs in EUR.`
-- `I want a budget-friendly 3-day trip to Paris in December. Convert total to MAD.`
-- `Plan a luxury 7-day trip to Tokyo in August. What's the weather like?`
+## Example Requests
 
-## Extending the project
+```
+Plan a 5-day mid-range trip to Barcelona in July. Show costs in EUR.
+
+I want a budget-friendly 3-day trip to Paris in December. Convert total to MAD.
+
+Plan a luxury 7-day trip to Tokyo in August. What's the weather like?
+```
+
+---
+
+## How the Agent Works
+
+The agent uses the **ReAct** (Reasoning + Acting) pattern:
+
+```
+Thought:  I need to check the weather in Barcelona in July.
+Action:   weather_tool
+Input:    "Barcelona, July"
+Observation: Avg temp 28°C, mostly sunny, low rainfall.
+
+Thought:  Now I need to estimate the budget for 5 days mid-range.
+Action:   budget_tool
+Input:    "Barcelona, 5 days, mid-range"
+Observation: ~$1,200 USD total.
+
+Thought:  Convert to EUR.
+Action:   currency_tool
+Input:    "1200 USD to EUR"
+Observation: ~€1,104
+
+...Final Answer: [complete travel plan]
+```
+
+Each tool call hits a real MCP server — no hallucinated numbers.
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Tool shows "offline" in UI | Run `./start_servers.sh` |
+| Agent gives no answer | Check Ollama is running: `ollama serve` |
+| Port already in use | Kill the process: `lsof -ti:3001 \| xargs kill` |
+| Model not found | Run `ollama pull llama3` |
+| Dependency error | Activate venv: `source venv/bin/activate` |
+
+---
+
+## Extending the Project
 
 To add a new MCP tool:
 
-1. Add a new FastAPI service under `mcp_servers/`.
-2. Add the service URL to `config.py`.
-3. Add a wrapper under `agent/tools/`.
-4. Add the new tool to `agent/runner.py`.
-5. Update the prompt or agent logic if needed.
+1. Create `mcp_servers/my_tool_server.py` — a FastAPI app with one endpoint
+2. Add its URL to `config.py`
+3. Create `agent/tools/my_tool.py` — a wrapper that calls the server
+4. Register it in `agent/tools/__init__.py`
+5. Add it to the tool list in `agent/runner.py`
+6. Update the agent prompt if needed
 
-## Notes on the new structure
+See `MCP_SERVERS.md` for a full technical walkthrough.
 
-This repo is now organized into clear, descriptive folders that reflect each responsibility:
-
-- `agent/` for agent logic and tool integration,
-- `mcp_servers/` for independent HTTP tool services,
-- `ui/` for the frontend experience.
-
-That makes the code easier to navigate, maintain, and present as a professional demo.
+---
 
 ## License
 
-Use this repository for learning and exploration.
+For learning, experimentation, and MCP server exploration.
